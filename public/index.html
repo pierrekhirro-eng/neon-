@@ -1,116 +1,71 @@
-
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,
-    initial-scale=1, maximum-scale=1, user-scalable=no">
-  <meta name="theme-color" content="#111c26">
-  <title>BLOCK WORLD | Sobrevivência em Dupla</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#12202d">
+  <meta name="description" content="Block World: construa e explore em dupla, no PC e no celular.">
+  <title>BLOCK WORLD • Construir juntos</title>
+  <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
-
-<section id="lobby">
-  <div class="menu">
-    <div class="logo">⛏ BLOCK<span>WORLD</span></div>
-    <div class="subtitle">MUNDO DE BLOCOS MULTIPLAYER</div>
-
-    <h1>Seu mundo.<br><em>Suas aventuras.</em></h1>
-
-    <p>
-      Explore um mundo 3D, quebre blocos,
-      construa com seu amigo e jogue pelo celular ou PC.
-    </p>
-
-    <button id="create" class="main-button">
-      🌍 CRIAR MUNDO
-    </button>
-
-    <div class="separator">OU ENTRE NO MUNDO DO AMIGO</div>
-
-    <div class="join-row">
-      <input id="roomCode" placeholder="CÓDIGO"
-             maxlength="4" autocomplete="off">
-      <button id="join">ENTRAR</button>
-    </div>
-
-    <div id="lobbyError"></div>
-
-    <div class="menu-info">
-      <span>📱 CONTROLES MOBILE</span>
-      <span>💻 PC + CELULAR</span>
-      <span>🔗 SALAS PRIVADAS</span>
-    </div>
-  </div>
-</section>
-
-<section id="game" class="hidden">
-
-  <div id="gameView"></div>
-
-  <div id="hud">
-    <div class="top-left">
-      <div class="game-name">⛏ BLOCK WORLD</div>
-      <div class="room-info">
-        SALA <b id="shownCode">----</b>
-        <button id="copy">COMPARTILHAR</button>
+  <section id="lobby" class="lobby">
+    <div class="menu">
+      <div class="eyebrow"><span class="online-dot"></span> MUNDO ONLINE PARA DOIS</div>
+      <div class="logo">BLOCK<span>WORLD</span><b>✦</b></div>
+      <div class="pixel-scene" aria-hidden="true">
+        <div class="sun"></div><div class="cloud cloud-a"></div><div class="cloud cloud-b"></div>
+        <div class="mountain mountain-a"></div><div class="mountain mountain-b"></div>
+        <div class="tree tree-a"><i></i></div><div class="tree tree-b"><i></i></div>
+        <div class="island"><div class="grassline"></div></div>
+        <div class="avatar avatar-a"><i></i></div><div class="avatar avatar-b"><i></i></div>
       </div>
-      <div id="status">CARREGANDO MUNDO...</div>
+      <h1>Crie. Explore. <em>Joguem juntos.</em></h1>
+      <p>Um mundo de blocos 3D para você no PC e seu amigo no celular. Sem instalar aplicativo.</p>
+      <button id="create" class="primary big">🌎 CRIAR MUNDO <span>↗</span></button>
+      <div class="or"><span>OU ENTRE COM UM CÓDIGO</span></div>
+      <div class="join"><input id="roomCode" type="text" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="ABCD" aria-label="Código da sala"><button id="join">ENTRAR</button></div>
+      <div id="lobbyError" role="alert"></div>
+      <div class="how"><span>⛏ Quebre e coloque blocos</span><span>📱 Controles de toque</span><span>👥 Dupla online</span></div>
+      <div class="version">BLOCK WORLD V3 • MODO CRIATIVO</div>
     </div>
+  </section>
 
-    <div class="top-right">
-      <div id="fps">FPS: --</div>
-      <div id="coordinates">X: 0 Y: 0 Z: 0</div>
-      <div class="health">❤️ ❤️ ❤️ ❤️ ❤️</div>
-    </div>
-
-    <div id="crosshair"></div>
-
-    <div id="hotbar">
-      <button class="slot selected" data-block="1">
-        <span class="block grass"></span><small>1</small>
-      </button>
-      <button class="slot" data-block="2">
-        <span class="block dirt"></span><small>2</small>
-      </button>
-      <button class="slot" data-block="3">
-        <span class="block stone"></span><small>3</small>
-      </button>
-      <button class="slot" data-block="4">
-        <span class="block wood"></span><small>4</small>
-      </button>
-      <button class="slot" data-block="5">
-        <span class="block leaves"></span><small>5</small>
-      </button>
-      <button class="slot" data-block="6">
-        <span class="block sand"></span><small>6</small>
-      </button>
-    </div>
-
-    <div id="mobileControls">
-      <div id="joystick">
-        <div id="stick"></div>
+  <section id="game" class="game hidden">
+    <div id="gameView"></div>
+    <div id="hud">
+      <div class="topbar">
+        <div class="room"><strong>⛏ BLOCK WORLD</strong><div> SALA <b id="shownCode">----</b> <button id="copy">LINK ↗</button></div></div>
+        <div class="topright"><div class="performance"><span id="fps">-- FPS</span><span id="status">AGUARDANDO AMIGO</span></div><button id="settingsBtn" aria-label="Configurações">⚙</button><button id="fullscreenBtn" aria-label="Tela cheia">⛶</button></div>
       </div>
-
-      <div class="action-buttons">
-        <button id="jumpBtn">↑<small>PULAR</small></button>
-        <button id="breakBtn">⛏<small>QUEBRAR</small></button>
-        <button id="placeBtn">▣<small>COLOCAR</small></button>
+      <div id="crosshair" aria-hidden="true"></div>
+      <div id="targetText"></div>
+      <div id="toast" role="status"></div>
+      <div id="hotbar" aria-label="Escolha um bloco">
+        <button class="slot selected" data-block="1" aria-label="Grama"><i class="block grass"></i><small>1</small></button>
+        <button class="slot" data-block="2" aria-label="Terra"><i class="block dirt"></i><small>2</small></button>
+        <button class="slot" data-block="3" aria-label="Pedra"><i class="block stone"></i><small>3</small></button>
+        <button class="slot" data-block="4" aria-label="Madeira"><i class="block wood"></i><small>4</small></button>
+        <button class="slot" data-block="5" aria-label="Folhas"><i class="block leaves"></i><small>5</small></button>
+        <button class="slot" data-block="6" aria-label="Areia"><i class="block sand"></i><small>6</small></button>
+        <button class="slot" data-block="7" aria-label="Tábuas"><i class="block planks"></i><small>7</small></button>
+      </div>
+      <div id="mobileControls">
+        <div id="joystick" aria-label="Andar"><div id="stick"></div></div>
+        <div class="actionButtons"><button id="jumpBtn">↑<small>PULAR</small></button><button id="breakBtn">⛏<small>QUEBRAR</small></button><button id="placeBtn">▣<small>COLOCAR</small></button></div>
+      </div>
+      <div id="desktopHint">WASD ANDAR · MOUSE OLHAR · ESQUERDO QUEBRAR · DIREITO COLOCAR · ESPAÇO PULAR · 1–7 ITENS</div>
+      <div id="settings" class="settings hidden">
+        <h2>CONFIGURAÇÕES <button id="closeSettings" aria-label="Fechar">×</button></h2>
+        <label>Sensibilidade da câmera <input id="sensitivity" type="range" min="1" max="10" value="5"></label>
+        <label>Tamanho dos controles <input id="controlSize" type="range" min="80" max="125" value="100"></label>
+        <label>Gráficos <select id="quality"><option value="auto">Automático</option><option value="low">Leve</option><option value="medium">Médio</option><option value="high">Alto</option></select></label>
+        <p>Arraste o dedo no espaço livre para olhar. Use o analógico para andar.</p>
+        <button id="resume" class="primary">VOLTAR AO JOGO</button>
       </div>
     </div>
-
-    <div id="desktopHint">
-      WASD MOVER · MOUSE OLHAR · CLIQUE ESQUERDO QUEBRAR
-      · DIREITO COLOCAR · ESPAÇO PULAR · 1-6 BLOCOS
-    </div>
-
-    <div id="message"></div>
-  </div>
-
-</section>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.149.0/three.min.js"></script>
-<script src="app.js"></script>
+  </section>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.149.0/three.min.js"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>
