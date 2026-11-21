@@ -2,219 +2,229 @@
 (() => {
   "use strict";
 
-  // NEON SURVIVORS V2
-  // Cliente multiplayer para o servidor existente.
-
-  const $ = (s) => document.querySelector(s);
-  const canvas = $("#arena");
-  const ctx = canvas.getContext("2d");
-
-  const W = 960;
-  const H = 540;
-  const TAU = Math.PI * 2;
-
-  const C = {
-    blue: "#64e8ff",
-    pink: "#ff63ae",
-    green: "#63ffad",
-    red: "#ff536c",
-    orange: "#ffae55",
-    white: "#f5f8ff"
-  };
-
-  const obstacles = [
-    { x: 325, y: 145, w: 90, h: 105 },
-    { x: 545, y: 290, w: 90, h: 105 },
-    { x: 440, y: 242, w: 80, h: 55 }
-  ];
+  const $ = s => document.querySelector(s);
+  const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+  const SIZE = 32;
+  const HEIGHT = 20;
+  const MOBILE = matchMedia("(pointer: coarse)").matches;
 
   let ws = null;
-  let slot = 0;
-  let roomCode = "";
   let connected = false;
-  let state = null;
-  let previousState = null;
+  let roomCode = "";
+  let slot = 0;
 
-  let keys = new Set();
-  let mouse = { x: 800, y: 270 };
+  let world = new Map();
+  let selectedBlock = 1;
+  let scene, camera, renderer, worldMesh, selectionMesh;
+  let otherPlayer = null;
+  let otherTarget = null;
+  let started = false;
+
+  let yaw = 0;
+  let pitch = 0;
+  let velocityY = 0;
+  let grounded = false;
+  let jumpRequested = false;
+
   let joystick = { x: 0, y: 0 };
-  let mobileAim = { x: 1, y: 0 };
-  let mouseFire = false;
-  let touchFire = false;
+  let keys = new Set();
+  let lookPointer = null;
+  let lastLook = { x: 0, y: 0 };
 
-  let particles = [];
-  let floatingTexts = [];
-  let stars = [];
-  let shake = 0;
-  let flash = 0;
-  let time = 0;
-  let lastFrame = performance.now();
-  let lastShotEffect = 0;
-  let notification = "";
-  let notificationUntil = 0;
-  let running = true;
+  let lastTime = 0;
+  let lastNetwork = 0;
+  let frameCounter = 0;
+  let fpsTime = 0;
+  let fps = 0;
+  let quality = MOBILE ? 1 : 1.5;
+  let messageTimer = null;
 
-  const clamp = (n, a, b) =>
-    Math.max(a, Math.min(b, n));
-
-  const random = (a, b) =>
-    a + Math.random() * (b - a);
-
-  const distance = (a, b) =>
-    Math.hypot(a.x - b.x, a.y - b.y);
-
-  const colorFor = (i) =>
-    i === 0 ? C.blue : C.pink;
-
-  const rounded = (x, y, w, h, r, color) => {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, h, r);
-    ctx.fill();
+  const player = {
+    x: 8.5,
+    y: 7,
+    z: 8.5
   };
 
-  function notify(message, duration = 2200) {
-    notification = message;
-    notificationUntil = performance.now() + duration;
-  }
+  const blockColors = {
+    1: [0x69ad4c, 0x527c39, 0x8d623f],
+    2: [0x86603d, 0x86603d, 0x86603d],
+    3: [0x899096, 0x899096, 0x899096],
+    4: [0xb18b55, 0x936a3c, 0x936a3c],
+    5: [0x43844a, 0x43844a, 0x43844a],
+    6: [0xe3cf8b, 0xe3cf8b, 0xe3cf8b]
+  };
 
-  function error(message) {
-    $("#lobbyError").textContent = message;
-  }
-
-  // -----------------------------
-  // ESTRELAS E AMBIENTE
-  // -----------------------------
-
-  for (let i = 0; i < 95; i++) {
-    stars.push({
-      x: random(0, W),
-      y: random(0, H),
-      size: random(0.4, 2),
-      phase: random(0, TAU),
-      speed: random(0.3, 1.4)
-    });
-  }
-
-  // -----------------------------
-  // CONEXÃO MULTIPLAYER
-  // -----------------------------
-
-  function connect(action, room = "") {
-    if (ws && ws.readyState <= 1) {
-      ws.close();
+  const faces = [
+    {
+      n: [1, 0, 0],
+      v: [[1,0,0],[1,1,0],[1,1,1],[1,0,1]]
+    },
+    {
+      n: [-1, 0, 0],
+      v: [[0,0,1],[0,1,1],[0,1,0],[0,0,0]]
+    },
+    {
+      n: [0, 1, 0],
+      v: [[0,1,1],[1,1,1],[1,1,0],[0,1,0]]
+    },
+    {
+      n: [0, -1, 0],
+      v: [[0,0,0],[1,0,0],[1,0,1],[0,0,1]]
+    },
+    {
+      n: [0, 0, 1],
+      v: [[1,0,1],[1,1,1],[0,1,1],[0,0,1]]
+    },
+    {
+      n: [0, 0, -1],
+      v: [[0,0,0],[0,1,0],[1,1,0],[1,0,0]]
     }
+  ];
+
+  const key = (x, y, z) => `${x},${y},${z}`;
+
+  function getBlock(x, y, z) {
+    return world.get(key(x, y, z)) || 0;
+  }
+
+  function setBlock(x, y, z, type) {
+    const k = key(x, y, z);
+
+    if (type === 0) world.delete(k);
+    else world.set(k, type);
+  }
+
+  function message(text) {
+    const el = $("#message");
+    el.textContent = text;
+    el.classList.add("visible");
+
+    clearTimeout(messageTimer);
+    messageTimer = setTimeout(() => {
+      el.classList.remove("visible");
+    }, 2200);
+  }
+
+  function error(text) {
+    $("#lobbyError").textContent = text;
+  }
+
+  // --------------------------------
+  // REDE MULTIPLAYER
+  // --------------------------------
+
+  function connect(action, code = "") {
+    error("");
+
+    if (ws && ws.readyState <= 1) ws.close();
 
     const protocol =
-      location.protocol === "https:" ? "wss" : "ws";
+      location.protocol === "https:" ? "wss:" : "ws:";
 
-    ws = new WebSocket(
-      `${protocol}://${location.host}`
-    );
+    ws = new WebSocket(`${protocol}//${location.host}`);
 
-    ws.addEventListener("open", () => {
+    ws.onopen = () => {
       ws.send(JSON.stringify({
         type: action,
-        code: room
+        code
       }));
-    });
+    };
 
-    ws.addEventListener("message", (event) => {
-      let message;
+    ws.onmessage = event => {
+      let m;
 
       try {
-        message = JSON.parse(event.data);
+        m = JSON.parse(event.data);
       } catch {
         return;
       }
 
-      if (message.type === "error") {
-        error(message.message || "Erro desconhecido.");
-        notify("ERRO NA CONEXÃO");
+      if (m.type === "error") {
+        error(m.message);
         return;
       }
 
-      if (message.type === "joined") {
-        slot = message.slot;
-        roomCode = message.code;
+      if (m.type === "joined") {
+        roomCode = m.code;
+        slot = m.slot;
         connected = true;
 
-        mobileAim = {
-          x: slot === 0 ? 1 : -1,
-          y: 0
-        };
+        player.x = m.spawn.x;
+        player.y = m.spawn.y;
+        player.z = m.spawn.z;
 
-        mouse.x = slot === 0 ? 800 : 160;
+        yaw = m.spawn.yaw;
+        pitch = m.spawn.pitch;
+        velocityY = 0;
 
+        world.clear();
+
+        for (const b of m.blocks) {
+          setBlock(b[0], b[1], b[2], b[3]);
+        }
+
+        $("#shownCode").textContent = roomCode;
         $("#lobby").classList.add("hidden");
         $("#game").classList.remove("hidden");
 
-        $("#shownCode").textContent = roomCode;
-
-        $("#youAre").textContent =
-          `VOCÊ É O JOGADOR ${slot + 1} ` +
-          (slot === 0 ? "(AZUL)" : "(ROSA)");
-
         history.replaceState(
-          null,
-          "",
-          `?sala=${roomCode}`
+          null, "", `?sala=${roomCode}`
         );
 
-        notify("CONECTADO À SALA!");
+        if (!started) init3D();
+        else rebuildWorld();
+
+        updatePlayers(m.players);
+        $("#status").textContent = "MUNDO CARREGADO";
+
+        message("BEM-VINDO AO BLOCK WORLD!");
       }
 
-      if (message.type === "state") {
-        previousState = state;
-        state = message;
+      if (m.type === "players") {
+        updatePlayers(m.players);
 
-        processStateChanges();
-        updateHUD();
+        const friend = m.players[1 - slot];
+
+        $("#status").textContent = friend
+          ? "🟢 AMIGO CONECTADO"
+          : "🟡 AGUARDANDO AMIGO";
       }
 
-      if (message.type === "event") {
-        notify(message.message || "EVENTO");
+      if (m.type === "block") {
+        setBlock(
+          m.x, m.y, m.z, m.blockType
+        );
+        rebuildWorld();
       }
-    });
+    };
 
-    ws.addEventListener("close", () => {
+    ws.onclose = () => {
+      if (!connected) return;
       connected = false;
-      mouseFire = false;
-      touchFire = false;
+      $("#status").textContent = "🔴 DESCONECTADO";
+      message("CONEXÃO PERDIDA. ATUALIZE A PÁGINA.");
+    };
 
-      if (state) {
-        state.phase = "waiting";
-        updateHUD();
-      }
-
-      notify("CONEXÃO PERDIDA", 5000);
-      error("Conexão perdida. Atualize a página.");
-    });
-
-    ws.addEventListener("error", () => {
+    ws.onerror = () => {
       error("Não foi possível conectar ao servidor.");
-    });
+    };
   }
 
-  $("#create").onclick = () => {
-    error("");
-    connect("create");
-  };
+  $("#create").onclick = () => connect("create");
 
   $("#join").onclick = () => {
     const code = $("#roomCode")
       .value.trim().toUpperCase();
 
     if (!/^[A-Z0-9]{4}$/.test(code)) {
-      error("Digite um código válido de 4 caracteres.");
+      error("Digite um código de 4 caracteres.");
       return;
     }
 
-    error("");
     connect("join", code);
   };
 
-  $("#roomCode").addEventListener("keydown", (e) => {
+  $("#roomCode").addEventListener("keydown", e => {
     if (e.key === "Enter") $("#join").click();
   });
 
@@ -223,1089 +233,858 @@
 
     try {
       await navigator.clipboard.writeText(link);
-      $("#copy").textContent = "COPIADO ✓";
-
-      setTimeout(() => {
-        $("#copy").textContent = "COPIAR LINK";
-      }, 1800);
+      message("LINK COPIADO!");
     } catch {
-      $("#copy").textContent = roomCode;
-      notify("COPIE O CÓDIGO DA SALA");
+      message(`CÓDIGO: ${roomCode}`);
     }
   };
 
-  $("#restart").onclick = () => {
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "restart" }));
+  function send(data) {
+    if (
+      connected &&
+      ws &&
+      ws.readyState === WebSocket.OPEN
+    ) {
+      ws.send(JSON.stringify(data));
     }
-  };
+  }
 
-  // -----------------------------
-  // INTERFACE
-  // -----------------------------
+  // --------------------------------
+  // MOTOR 3D
+  // --------------------------------
 
-  function updateHUD() {
-    if (!state) return;
-
-    const p1 = state.players[0];
-    const p2 = state.players[1];
-
-    $("#score1").textContent = p1.kills;
-    $("#score2").textContent = p2.kills;
-
-    $("#hp1").style.width = `${p1.hp}%`;
-    $("#hp2").style.width = `${p2.hp}%`;
-
-    const phases = {
-      waiting: "AGUARDANDO AMIGO",
-      countdown: "PREPAREM-SE!",
-      playing:
-        `ONDA ${state.wave} · ${state.remaining} INIMIGOS`,
-      intermission: "ONDA CONCLUÍDA!",
-      finished: "FIM DE JOGO"
-    };
-
-    $("#status").textContent =
-      connected
-        ? (phases[state.phase] || "SOBREVIVÊNCIA")
-        : "DESCONECTADO";
-
-    const overlay = $("#overlay");
-
-    if (state.phase === "playing" && connected) {
-      overlay.classList.add("hidden");
+  function init3D() {
+    if (typeof THREE === "undefined") {
+      message("ERRO AO CARREGAR MOTOR 3D");
       return;
     }
 
-    overlay.classList.remove("hidden");
+    started = true;
 
-    let title = "";
-    let subtitle = "";
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x8fc7ee);
+    scene.fog = new THREE.Fog(0x8fc7ee, 15, 29);
 
-    switch (state.phase) {
-      case "waiting":
-        title = connected
-          ? "AGUARDANDO SEU AMIGO"
-          : "CONEXÃO PERDIDA";
-        subtitle = connected
-          ? `Compartilhe o código ${roomCode}`
-          : "Atualize a página para reconectar.";
-        break;
-
-      case "countdown":
-        title = "PREPAREM-SE!";
-        subtitle =
-          `Começa em ${Math.ceil(state.phaseRemaining / 1000)}...`;
-        break;
-
-      case "intermission":
-        title = `ONDA ${state.wave} SUPERADA!`;
-        subtitle =
-          "Recuperem a vida. A próxima onda está chegando!";
-        break;
-
-      case "finished":
-        title = "FIM DE JOGO";
-        subtitle =
-          `Vocês sobreviveram até a onda ${state.wave}!`;
-        break;
-    }
-
-    $("#overlayText").textContent = title;
-    $("#overlaySub").textContent = subtitle;
-
-    $("#restart").classList.toggle(
-      "hidden",
-      state.phase !== "finished"
+    camera = new THREE.PerspectiveCamera(
+      74,
+      innerWidth / innerHeight,
+      0.05,
+      40
     );
-  }
 
-  // -----------------------------
-  // SISTEMA DE PARTÍCULAS
-  // -----------------------------
+    camera.rotation.order = "YXZ";
 
-  function emit(x, y, color, count = 10, power = 1) {
-    for (let i = 0; i < count; i++) {
-      const angle = random(0, TAU);
-      const speed = random(55, 235) * power;
-
-      particles.push({
-        x,
-        y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        life: random(0.25, 0.7),
-        maxLife: 0.7,
-        size: random(2, 6),
-        color
-      });
-    }
-
-    if (particles.length > 450) {
-      particles.splice(0, particles.length - 450);
-    }
-  }
-
-  function addText(x, y, value, color) {
-    floatingTexts.push({
-      x,
-      y,
-      value,
-      color,
-      life: 1
+    renderer = new THREE.WebGLRenderer({
+      antialias: !MOBILE,
+      alpha: false,
+      powerPreference: MOBILE
+        ? "low-power" : "high-performance"
     });
-  }
 
-  function updateEffects(dt) {
-    for (const p of particles) {
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-
-      p.vx *= Math.pow(0.12, dt);
-      p.vy *= Math.pow(0.12, dt);
-
-      p.life -= dt;
-    }
-
-    particles = particles.filter(p => p.life > 0);
-
-    for (const t of floatingTexts) {
-      t.y -= 34 * dt;
-      t.life -= dt;
-    }
-
-    floatingTexts =
-      floatingTexts.filter(t => t.life > 0);
-
-    shake *= Math.pow(0.015, dt);
-    flash *= Math.pow(0.003, dt);
-  }
-
-  function processStateChanges() {
-    if (!previousState || !state) return;
-
-    const old = previousState;
-    const current = state;
-
-    for (let i = 0; i < 2; i++) {
-      const a = old.players[i];
-      const b = current.players[i];
-
-      if (!a || !b) continue;
-
-      if (b.hp < a.hp) {
-        emit(b.x, b.y, C.red, 14, 0.8);
-        addText(
-          b.x,
-          b.y - 30,
-          `-${a.hp - b.hp}`,
-          C.red
-        );
-
-        if (i === slot) {
-          shake = Math.max(shake, 9);
-          flash = 0.25;
-        }
-      }
-
-      if (b.hp > a.hp) {
-        emit(b.x, b.y, C.green, 12, 0.55);
-        addText(b.x, b.y - 35, "CURA", C.green);
-      }
-
-      if (b.kills > a.kills) {
-        if (i === slot) {
-          shake = Math.max(shake, 2.5);
-        }
-      }
-    }
-
-    if (current.phase !== old.phase) {
-      if (current.phase === "playing") {
-        notify(`ONDA ${current.wave} COMEÇOU!`, 2200);
-        emit(W / 2, H / 2, C.blue, 35, 1.2);
-      }
-
-      if (current.phase === "intermission") {
-        notify("ONDA CONCLUÍDA!", 2500);
-        emit(W / 2, H / 2, C.green, 55, 1.5);
-      }
-    }
-
-    // Explosões visuais quando monstros desaparecem.
-    const oldEnemies = old.enemies || [];
-    const newEnemies = current.enemies || [];
-
-    if (newEnemies.length < oldEnemies.length) {
-      const count = Math.min(
-        oldEnemies.length - newEnemies.length,
-        5
-      );
-
-      for (let i = 0; i < count; i++) {
-        const e = oldEnemies[i];
-
-        if (e) {
-          emit(e.x, e.y, C.orange, 9, 0.75);
-        }
-      }
-    }
-  }
-
-  // -----------------------------
-  // DESENHO DO CHÃO
-  // -----------------------------
-
-  function drawFloor() {
-    const bg = ctx.createLinearGradient(0, 0, W, H);
-    bg.addColorStop(0, "#101b32");
-    bg.addColorStop(0.5, "#131b35");
-    bg.addColorStop(1, "#24162f");
-
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    ctx.save();
-
-    // Grade futurista
-    ctx.strokeStyle = "rgba(100,180,255,.075)";
-    ctx.lineWidth = 1;
-
-    const offset = (time * 4) % 40;
-
-    for (let x = -40 + offset; x < W + 40; x += 40) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, H);
-      ctx.stroke();
-    }
-
-    for (let y = 0; y < H; y += 40) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(W, y);
-      ctx.stroke();
-    }
-
-    // Pequenas estrelas pulsando
-    for (const s of stars) {
-      const alpha =
-        0.16 +
-        Math.sin(time * s.speed + s.phase) * 0.12;
-
-      ctx.globalAlpha = Math.max(0.04, alpha);
-      ctx.fillStyle = C.blue;
-      ctx.fillRect(s.x, s.y, s.size, s.size);
-    }
-
-    ctx.globalAlpha = 1;
-
-    // Brilho central
-    const glow = ctx.createRadialGradient(
-      W / 2, H / 2, 20,
-      W / 2, H / 2, 440
+    renderer.setPixelRatio(
+      Math.min(devicePixelRatio, quality)
     );
 
-    glow.addColorStop(0, "rgba(65,93,175,.13)");
-    glow.addColorStop(1, "rgba(65,93,175,0)");
+    renderer.setSize(innerWidth, innerHeight);
 
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, W, H);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    // Bordas
-    ctx.strokeStyle = "rgba(99,213,255,.42)";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(10, 10, W - 20, H - 20);
+    $("#gameView").appendChild(renderer.domElement);
 
-    ctx.restore();
-  }
+    scene.add(new THREE.HemisphereLight(
+      0xe6f6ff, 0x67764b, 2.1
+    ));
 
-  // -----------------------------
-  // OBSTÁCULOS
-  // -----------------------------
-
-  function drawObstacles() {
-    for (const b of obstacles) {
-      ctx.save();
-
-      rounded(
-        b.x + 9, b.y + 13,
-        b.w, b.h, 11,
-        "rgba(0,0,0,.40)"
-      );
-
-      const fill = ctx.createLinearGradient(
-        b.x, b.y,
-        b.x + b.w, b.y + b.h
-      );
-
-      fill.addColorStop(0, "#36486e");
-      fill.addColorStop(1, "#1c2848");
-
-      rounded(b.x, b.y, b.w, b.h, 10, fill);
-
-      ctx.shadowColor = C.blue;
-      ctx.shadowBlur = 9;
-      ctx.strokeStyle = "rgba(104,220,255,.65)";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(
-        b.x + 7,
-        b.y + 7,
-        b.w - 14,
-        b.h - 14
-      );
-
-      ctx.shadowBlur = 0;
-
-      ctx.strokeStyle = "rgba(150,180,255,.25)";
-
-      for (let i = 14; i < b.w - 10; i += 20) {
-        ctx.beginPath();
-        ctx.moveTo(b.x + i, b.y + 14);
-        ctx.lineTo(b.x + i - 12, b.y + b.h - 14);
-        ctx.stroke();
-      }
-
-      // Parafusos
-      ctx.fillStyle = "#8da8d7";
-
-      for (const [dx, dy] of [
-        [14, 14],
-        [b.w - 14, 14],
-        [14, b.h - 14],
-        [b.w - 14, b.h - 14]
-      ]) {
-        ctx.beginPath();
-        ctx.arc(b.x + dx, b.y + dy, 2, 0, TAU);
-        ctx.fill();
-      }
-
-      ctx.restore();
-    }
-  }
-
-  // -----------------------------
-  // ITENS DE CURA
-  // -----------------------------
-
-  function drawPickups() {
-    if (!state) return;
-
-    for (const p of state.pickups || []) {
-      const bob = Math.sin(time * 4 + p.x) * 4;
-
-      ctx.save();
-      ctx.translate(p.x, p.y + bob);
-
-      ctx.shadowColor = C.green;
-      ctx.shadowBlur = 25;
-
-      ctx.fillStyle = "rgba(47,255,140,.16)";
-      ctx.beginPath();
-      ctx.arc(0, 0, 19, 0, TAU);
-      ctx.fill();
-
-      rounded(-13, -13, 26, 26, 6, C.green);
-
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = "#104c36";
-      ctx.fillRect(-3, -9, 6, 18);
-      ctx.fillRect(-9, -3, 18, 6);
-
-      ctx.restore();
-    }
-  }
-
-  // -----------------------------
-  // MONSTROS
-  // -----------------------------
-
-  function drawEnemies() {
-    if (!state) return;
-
-    for (const e of state.enemies || []) {
-      const strong = e.r > 17;
-      const color = strong ? C.orange : C.red;
-
-      const pulse =
-        Math.sin(time * 5 + e.x * 0.01) * 1.5;
-
-      ctx.save();
-      ctx.translate(e.x, e.y);
-
-      // Sombra
-      ctx.fillStyle = "rgba(0,0,0,.34)";
-      ctx.beginPath();
-      ctx.ellipse(3, e.r * .65, e.r, 8, 0, 0, TAU);
-      ctx.fill();
-
-      // Aura
-      ctx.shadowColor = color;
-      ctx.shadowBlur = strong ? 25 : 15;
-
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(0, 0, e.r + pulse, 0, TAU);
-      ctx.fill();
-
-      ctx.shadowBlur = 0;
-
-      // Corpo
-      ctx.fillStyle = strong ? "#723c36" : "#8d263d";
-      ctx.beginPath();
-      ctx.arc(0, 0, e.r * .72, 0, TAU);
-      ctx.fill();
-
-      // Olhos
-      ctx.fillStyle = "#fff0bb";
-      ctx.shadowColor = C.orange;
-      ctx.shadowBlur = 8;
-
-      ctx.beginPath();
-      ctx.arc(-e.r * .29, -4, 3.3, 0, TAU);
-      ctx.arc(e.r * .29, -4, 3.3, 0, TAU);
-      ctx.fill();
-
-      ctx.shadowBlur = 0;
-
-      // Boca
-      ctx.strokeStyle = "#280d1c";
-      ctx.lineWidth = 3;
-
-      ctx.beginPath();
-      ctx.arc(0, 3, e.r * .32, 0, Math.PI);
-      ctx.stroke();
-
-      if (strong) {
-        // Pontas do monstro grande
-        ctx.strokeStyle = C.orange;
-        ctx.lineWidth = 4;
-
-        for (let a = 0; a < TAU; a += Math.PI / 3) {
-          ctx.beginPath();
-          ctx.moveTo(
-            Math.cos(a) * e.r * .8,
-            Math.sin(a) * e.r * .8
-          );
-          ctx.lineTo(
-            Math.cos(a) * e.r * 1.25,
-            Math.sin(a) * e.r * 1.25
-          );
-          ctx.stroke();
-        }
-      }
-
-      // Barra de vida
-      const width = e.r * 2.3;
-
-      rounded(
-        -width / 2,
-        -e.r - 15,
-        width, 5, 3,
-        "#351b32"
-      );
-
-      rounded(
-        -width / 2,
-        -e.r - 15,
-        width * clamp(e.hp / e.maxHp, 0, 1),
-        5, 3,
-        color
-      );
-
-      ctx.restore();
-    }
-  }
-
-  // -----------------------------
-  // PERSONAGENS
-  // -----------------------------
-
-  function drawPlayers() {
-    if (!state) return;
-
-    for (let i = 0; i < state.players.length; i++) {
-      const p = state.players[i];
-      const color = colorFor(i);
-      const alive = p.hp > 0;
-
-      ctx.save();
-      ctx.translate(p.x, p.y);
-
-      if (!alive) {
-        ctx.globalAlpha = 0.3;
-      } else if (
-        p.invuln &&
-        Math.floor(time * 12) % 2 === 0
-      ) {
-        ctx.globalAlpha = 0.55;
-      }
-
-      // Sombra
-      ctx.fillStyle = "rgba(0,0,0,.45)";
-      ctx.beginPath();
-      ctx.ellipse(3, 13, 19, 9, 0, 0, TAU);
-      ctx.fill();
-
-      // Aura circular
-      ctx.strokeStyle = color;
-      ctx.globalAlpha *= 0.22;
-      ctx.lineWidth = 2;
-
-      ctx.beginPath();
-      ctx.arc(
-        0, 0,
-        25 + Math.sin(time * 4) * 2,
-        0, TAU
-      );
-      ctx.stroke();
-
-      ctx.globalAlpha = alive ? 1 : 0.3;
-
-      // Mochila
-      rounded(-15, -13, 30, 29, 9, "#263650");
-
-      // Corpo
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 20;
-
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(0, 0, 17, 0, TAU);
-      ctx.fill();
-
-      ctx.shadowBlur = 0;
-
-      // Armadura
-      ctx.fillStyle = "#13233a";
-      ctx.beginPath();
-      ctx.arc(0, 0, 12, 0, TAU);
-      ctx.fill();
-
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 3;
-
-      ctx.beginPath();
-      ctx.arc(0, 0, 9, -2.3, .7);
-      ctx.stroke();
-
-      // Arma que acompanha a mira
-      ctx.save();
-      ctx.rotate(p.dir);
-
-      rounded(9, -7, 29, 14, 4, "#10182b");
-      rounded(19, -4, 23, 8, 3, color);
-      rounded(32, -3, 13, 6, 2, "#d9f8ff");
-
-      ctx.restore();
-
-      // Identificação
-      ctx.textAlign = "center";
-      ctx.font = "900 14px system-ui";
-      ctx.fillStyle = color;
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 6;
-
-      ctx.fillText(
-        i === slot ? "VOCÊ" : "AMIGO",
-        0, -35
-      );
-
-      ctx.shadowBlur = 0;
-
-      // Barra de vida
-      rounded(-28, 29, 56, 6, 3, "#28314f");
-
-      if (p.hp > 0) {
-        rounded(
-          -28, 29,
-          56 * p.hp / 100,
-          6, 3,
-          p.hp < 30 ? C.red : color
-        );
-      }
-
-      ctx.restore();
-    }
-  }
-
-  // -----------------------------
-  // PROJÉTEIS
-  // -----------------------------
-
-  function drawBullets() {
-    if (!state) return;
-
-    for (const b of state.bullets || []) {
-      const color = colorFor(b.owner);
-      const angle = Math.atan2(b.vy, b.vx);
-
-      ctx.save();
-      ctx.translate(b.x, b.y);
-      ctx.rotate(angle);
-
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 20;
-
-      rounded(-14, -3, 24, 6, 3, color);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.beginPath();
-      ctx.arc(9, 0, 4, 0, TAU);
-      ctx.fill();
-
-      ctx.restore();
-    }
-  }
-
-  // -----------------------------
-  // EFEITOS DE PARTÍCULAS
-  // -----------------------------
-
-  function drawEffects() {
-    ctx.save();
-
-    for (const p of particles) {
-      ctx.globalAlpha = clamp(
-        p.life / p.maxLife,
-        0, 1
-      );
-
-      ctx.shadowColor = p.color;
-      ctx.shadowBlur = 12;
-      ctx.fillStyle = p.color;
-
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, TAU);
-      ctx.fill();
-    }
-
-    ctx.shadowBlur = 0;
-
-    for (const t of floatingTexts) {
-      ctx.globalAlpha = clamp(t.life, 0, 1);
-      ctx.font = "900 17px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillStyle = t.color;
-      ctx.fillText(t.value, t.x, t.y);
-    }
-
-    ctx.restore();
-  }
-
-  // -----------------------------
-  // INDICADORES E AVISOS
-  // -----------------------------
-
-  function drawGameHUD() {
-    ctx.save();
-
-    if (state && state.phase === "playing") {
-      rounded(20, 18, 138, 28, 7, "#101b34dd");
-
-      ctx.font = "900 13px system-ui";
-      ctx.textAlign = "left";
-      ctx.fillStyle = C.blue;
-
-      ctx.fillText(
-        `⚡ ONDA ${state.wave}`,
-        31, 37
-      );
-
-      rounded(W - 170, 18, 150, 28, 7, "#101b34dd");
-
-      ctx.textAlign = "center";
-      ctx.fillStyle = C.white;
-
-      ctx.fillText(
-        `${state.remaining} MONSTROS`,
-        W - 95, 37
-      );
-    }
-
-    if (
-      notification &&
-      performance.now() < notificationUntil
-    ) {
-      const remaining =
-        notificationUntil - performance.now();
-
-      ctx.globalAlpha =
-        clamp(remaining / 350, 0, 1);
-
-      ctx.textAlign = "center";
-      ctx.font = "900 21px system-ui";
-
-      ctx.shadowColor = C.blue;
-      ctx.shadowBlur = 16;
-      ctx.fillStyle = C.white;
-
-      ctx.fillText(notification, W / 2, 80);
-
-      ctx.shadowBlur = 0;
-    }
-
-    // Indicador de vida baixa
-    if (state && state.players[slot]) {
-      const hp = state.players[slot].hp;
-
-      if (hp > 0 && hp < 30) {
-        const alpha =
-          0.06 + Math.sin(time * 8) * 0.04;
-
-        ctx.strokeStyle =
-          `rgba(255,50,80,${Math.max(0, alpha)})`;
-
-        ctx.lineWidth = 30;
-        ctx.strokeRect(0, 0, W, H);
-      }
-    }
-
-    ctx.restore();
-  }
-
-  // -----------------------------
-  // RENDER PRINCIPAL
-  // -----------------------------
-
-  function draw(now) {
-    if (!running) return;
-
-    requestAnimationFrame(draw);
-
-    const dt = Math.min(
-      (now - lastFrame) / 1000,
-      0.05
+    const sun = new THREE.DirectionalLight(
+      0xfff1c8, 1.1
     );
 
-    lastFrame = now;
-    time += dt;
+    sun.position.set(18, 34, 12);
+    scene.add(sun);
 
-    updateEffects(dt);
+    createOtherPlayer();
+    createSelection();
+    rebuildWorld();
+    setupLook();
 
-    ctx.clearRect(0, 0, W, H);
+    window.addEventListener("resize", resize);
+    document.addEventListener(
+      "visibilitychange",
+      () => {
+        lastTime = performance.now();
+        keys.clear();
+        joystick = { x: 0, y: 0 };
+      }
+    );
 
-    ctx.save();
-
-    if (shake > 0.2) {
-      ctx.translate(
-        random(-shake, shake),
-        random(-shake, shake)
-      );
-    }
-
-    drawFloor();
-    drawObstacles();
-    drawPickups();
-    drawEnemies();
-    drawBullets();
-    drawPlayers();
-    drawEffects();
-
-    ctx.restore();
-
-    if (flash > 0.01) {
-      ctx.fillStyle =
-        `rgba(255,55,85,${flash * 0.4})`;
-      ctx.fillRect(0, 0, W, H);
-    }
-
-    drawGameHUD();
+    requestAnimationFrame(loop);
   }
 
-  // -----------------------------
-  // MOUSE
-  // -----------------------------
+  // --------------------------------
+  // MALHA OTIMIZADA DOS BLOCOS
+  // Somente faces expostas.
+  // --------------------------------
 
-  function pointerToWorld(e) {
-    const r = canvas.getBoundingClientRect();
+  function rebuildWorld() {
+    if (!scene) return;
+
+    if (worldMesh) {
+      scene.remove(worldMesh);
+      worldMesh.geometry.dispose();
+    }
+
+    const positions = [];
+    const normals = [];
+    const colors = [];
+    const indices = [];
+
+    let vertexCount = 0;
+
+    const color = new THREE.Color();
+
+    for (const [position, type] of world) {
+      const [x, y, z] = position
+        .split(",").map(Number);
+
+      for (let f = 0; f < 6; f++) {
+        const face = faces[f];
+        const [nx, ny, nz] = face.n;
+
+        if (getBlock(x + nx, y + ny, z + nz)) {
+          continue;
+        }
+
+        const palette = blockColors[type] ||
+          blockColors[3];
+
+        // Face superior, inferior e laterais.
+        const hex = ny === 1
+          ? palette[0]
+          : ny === -1
+            ? palette[1]
+            : palette[2];
+
+        color.setHex(hex);
+
+        // Pequena variação de luminosidade
+        // sem precisar de sombras pesadas.
+        const shade =
+          nx !== 0 ? .88 :
+          nz !== 0 ? .95 : 1;
+
+        for (const v of face.v) {
+          positions.push(
+            x + v[0],
+            y + v[1],
+            z + v[2]
+          );
+
+          normals.push(nx, ny, nz);
+
+          colors.push(
+            color.r * shade,
+            color.g * shade,
+            color.b * shade
+          );
+        }
+
+        indices.push(
+          vertexCount,
+          vertexCount + 1,
+          vertexCount + 2,
+          vertexCount,
+          vertexCount + 2,
+          vertexCount + 3
+        );
+
+        vertexCount += 4;
+      }
+    }
+
+    const geometry = new THREE.BufferGeometry();
+
+    geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(positions, 3)
+    );
+
+    geometry.setAttribute(
+      "normal",
+      new THREE.Float32BufferAttribute(normals, 3)
+    );
+
+    geometry.setAttribute(
+      "color",
+      new THREE.Float32BufferAttribute(colors, 3)
+    );
+
+    geometry.setIndex(indices);
+    geometry.computeBoundingSphere();
+
+    const material = new THREE.MeshLambertMaterial({
+      vertexColors: true,
+      side: THREE.FrontSide
+    });
+
+    worldMesh = new THREE.Mesh(geometry, material);
+    scene.add(worldMesh);
+  }
+
+  // --------------------------------
+  // PERSONAGEM DO AMIGO
+  // --------------------------------
+
+  function createOtherPlayer() {
+    otherPlayer = new THREE.Group();
+
+    const material = new THREE.MeshLambertMaterial({
+      color: 0xf16da7
+    });
+
+    const skin = new THREE.MeshLambertMaterial({
+      color: 0xe9bd96
+    });
+
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(.65, .85, .35),
+      material
+    );
+    body.position.y = 1.02;
+
+    const head = new THREE.Mesh(
+      new THREE.BoxGeometry(.48, .48, .48),
+      skin
+    );
+    head.position.y = 1.68;
+
+    const leftArm = new THREE.Mesh(
+      new THREE.BoxGeometry(.22, .75, .32),
+      material
+    );
+    leftArm.position.set(-.46, 1.03, 0);
+
+    const rightArm = leftArm.clone();
+    rightArm.position.x = .46;
+
+    const legMaterial = new THREE.MeshLambertMaterial({
+      color: 0x293f75
+    });
+
+    const leg1 = new THREE.Mesh(
+      new THREE.BoxGeometry(.26, .68, .33),
+      legMaterial
+    );
+    leg1.position.set(-.17, .34, 0);
+
+    const leg2 = leg1.clone();
+    leg2.position.x = .17;
+
+    otherPlayer.add(
+      body, head, leftArm, rightArm, leg1, leg2
+    );
+
+    otherPlayer.visible = false;
+    scene.add(otherPlayer);
+  }
+
+  function updatePlayers(players) {
+    if (!otherPlayer || !players) return;
+
+    const p = players[1 - slot];
+
+    if (!p) {
+      otherTarget = null;
+      otherPlayer.visible = false;
+      return;
+    }
+
+    otherTarget = p;
+    otherPlayer.visible = true;
+  }
+
+  // --------------------------------
+  // SELEÇÃO DE BLOCO
+  // --------------------------------
+
+  function createSelection() {
+    const edges = new THREE.EdgesGeometry(
+      new THREE.BoxGeometry(1.01, 1.01, 1.01)
+    );
+
+    selectionMesh = new THREE.LineSegments(
+      edges,
+      new THREE.LineBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: .85
+      })
+    );
+
+    selectionMesh.visible = false;
+    scene.add(selectionMesh);
+  }
+
+  const raycaster = new THREE.Raycaster();
+
+  function targetBlock() {
+    if (!camera || !worldMesh) return null;
+
+    raycaster.setFromCamera(
+      new THREE.Vector2(0, 0),
+      camera
+    );
+
+    raycaster.far = 5.5;
+
+    const hits = raycaster.intersectObject(worldMesh);
+
+    if (!hits.length) return null;
+
+    const hit = hits[0];
+    const n = hit.face.normal;
+
+    const point = hit.point;
+
+    const bx = Math.floor(point.x - n.x * .01);
+    const by = Math.floor(point.y - n.y * .01);
+    const bz = Math.floor(point.z - n.z * .01);
+
+    const px = bx + Math.round(n.x);
+    const py = by + Math.round(n.y);
+    const pz = bz + Math.round(n.z);
 
     return {
-      x: (e.clientX - r.left) / r.width * W,
-      y: (e.clientY - r.top) / r.height * H
+      x: bx, y: by, z: bz,
+      px, py, pz
     };
   }
 
-  canvas.addEventListener("pointermove", (e) => {
-    if (e.pointerType === "mouse") {
-      mouse = pointerToWorld(e);
+  function editBlock(action) {
+    if (!connected) return;
+
+    const target = targetBlock();
+    if (!target) return;
+
+    const placing = action === "place";
+
+    const x = placing ? target.px : target.x;
+    const y = placing ? target.py : target.y;
+    const z = placing ? target.pz : target.z;
+
+    if (
+      x < 0 || x >= SIZE ||
+      z < 0 || z >= SIZE ||
+      y < 0 || y >= HEIGHT
+    ) return;
+
+    if (!placing && y === 0) return;
+
+    send({
+      type: "block",
+      action,
+      x, y, z,
+      blockType: selectedBlock
+    });
+  }
+
+  // --------------------------------
+  // COLISÃO DO JOGADOR
+  // --------------------------------
+
+  function collides(x, y, z) {
+    const radius = .27;
+    const height = 1.72;
+
+    const minX = Math.floor(x - radius);
+    const maxX = Math.floor(x + radius);
+    const minY = Math.floor(y + .05);
+    const maxY = Math.floor(y + height);
+    const minZ = Math.floor(z - radius);
+    const maxZ = Math.floor(z + radius);
+
+    if (
+      x < radius ||
+      x > SIZE - radius ||
+      z < radius ||
+      z > SIZE - radius
+    ) return true;
+
+    for (let bx = minX; bx <= maxX; bx++) {
+      for (let by = minY; by <= maxY; by++) {
+        for (let bz = minZ; bz <= maxZ; bz++) {
+          if (getBlock(bx, by, bz)) return true;
+        }
+      }
     }
-  });
 
-  canvas.addEventListener("pointerdown", (e) => {
-    if (e.pointerType === "mouse") {
-      mouseFire = true;
-      mouse = pointerToWorld(e);
-    }
-  });
+    return false;
+  }
 
-  window.addEventListener("pointerup", (e) => {
-    if (e.pointerType === "mouse") {
-      mouseFire = false;
-    }
-  });
+  function moveAxis(axis, amount) {
+    if (!amount) return true;
 
-  // -----------------------------
-  // TECLADO
-  // -----------------------------
-
-  window.addEventListener("keydown", (e) => {
-    const editing = ["INPUT", "TEXTAREA"].includes(
-      document.activeElement?.tagName
+    const steps = Math.max(
+      1, Math.ceil(Math.abs(amount) / .12)
     );
 
-    if (editing) return;
+    const step = amount / steps;
 
-    const blocked = [
-      "Space",
-      "ArrowUp",
-      "ArrowDown",
-      "ArrowLeft",
-      "ArrowRight"
-    ];
+    for (let i = 0; i < steps; i++) {
+      const x = player.x + (axis === "x" ? step : 0);
+      const y = player.y + (axis === "y" ? step : 0);
+      const z = player.z + (axis === "z" ? step : 0);
 
-    if (blocked.includes(e.code)) {
-      e.preventDefault();
+      if (collides(x, y, z)) return false;
+
+      player[axis] += step;
     }
 
-    keys.add(e.code);
+    return true;
+  }
+
+  function updateMovement(dt) {
+    let forward =
+      Number(keys.has("KeyW") || keys.has("ArrowUp")) -
+      Number(keys.has("KeyS") || keys.has("ArrowDown"));
+
+    let strafe =
+      Number(keys.has("KeyD") || keys.has("ArrowRight")) -
+      Number(keys.has("KeyA") || keys.has("ArrowLeft"));
+
+    forward += -joystick.y;
+    strafe += joystick.x;
+
+    const length = Math.hypot(forward, strafe);
+
+    if (length > 1) {
+      forward /= length;
+      strafe /= length;
+    }
+
+    const speed = keys.has("ShiftLeft") ? 5.8 : 4.3;
+
+    const dx = (
+      -Math.sin(yaw) * forward +
+       Math.cos(yaw) * strafe
+    ) * speed * dt;
+
+    const dz = (
+      -Math.cos(yaw) * forward -
+       Math.sin(yaw) * strafe
+    ) * speed * dt;
+
+    moveAxis("x", dx);
+    moveAxis("z", dz);
+
+    if (jumpRequested && grounded) {
+      velocityY = 7;
+      grounded = false;
+    }
+
+    jumpRequested = false;
+
+    velocityY -= 19 * dt;
+    velocityY = Math.max(velocityY, -22);
+
+    const movedY = moveAxis("y", velocityY * dt);
+
+    if (!movedY) {
+      if (velocityY < 0) grounded = true;
+      velocityY = 0;
+    } else {
+      grounded = false;
+    }
+
+    if (player.y < -5) {
+      player.x = 8.5;
+      player.z = 8.5;
+      player.y = 12;
+      velocityY = 0;
+    }
+
+    camera.position.set(
+      player.x,
+      player.y + 1.55,
+      player.z
+    );
+
+    camera.rotation.y = yaw;
+    camera.rotation.x = pitch;
+  }
+
+  // --------------------------------
+  // MIRA E CÂMERA
+  // --------------------------------
+
+  function rotateLook(dx, dy) {
+    const sensitivity = MOBILE ? .004 : .0023;
+
+    yaw -= dx * sensitivity;
+
+    pitch = clamp(
+      pitch - dy * sensitivity,
+      -1.48,
+      1.48
+    );
+  }
+
+  function setupLook() {
+    const canvas = renderer.domElement;
+
+    if (!MOBILE) {
+      canvas.addEventListener("mousedown", e => {
+        e.preventDefault();
+
+        if (document.pointerLockElement !== canvas) {
+          canvas.requestPointerLock();
+          return;
+        }
+
+        if (e.button === 0) editBlock("break");
+        if (e.button === 2) editBlock("place");
+      });
+
+      canvas.addEventListener("contextmenu", e => {
+        e.preventDefault();
+      });
+
+      document.addEventListener("mousemove", e => {
+        if (document.pointerLockElement === canvas) {
+          rotateLook(e.movementX, e.movementY);
+        }
+      });
+
+      return;
+    }
+
+    canvas.addEventListener("pointerdown", e => {
+      if (lookPointer !== null) return;
+
+      lookPointer = e.pointerId;
+      lastLook.x = e.clientX;
+      lastLook.y = e.clientY;
+
+      canvas.setPointerCapture(e.pointerId);
+    });
+
+    canvas.addEventListener("pointermove", e => {
+      if (e.pointerId !== lookPointer) return;
+
+      rotateLook(
+        e.clientX - lastLook.x,
+        e.clientY - lastLook.y
+      );
+
+      lastLook.x = e.clientX;
+      lastLook.y = e.clientY;
+    });
+
+    const release = e => {
+      if (e.pointerId === lookPointer) {
+        lookPointer = null;
+      }
+    };
+
+    canvas.addEventListener("pointerup", release);
+    canvas.addEventListener("pointercancel", release);
+  }
+
+  // --------------------------------
+  // CONTROLES MOBILE
+  // --------------------------------
+
+  const joyElement = $("#joystick");
+  const stick = $("#stick");
+
+  let joyPointer = null;
+
+  function updateJoystick(e) {
+    const r = joyElement.getBoundingClientRect();
+
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+
+    let x = e.clientX - cx;
+    let y = e.clientY - cy;
+
+    const max = r.width * .30;
+    const len = Math.hypot(x, y);
+
+    if (len > max) {
+      x = x / len * max;
+      y = y / len * max;
+    }
+
+    joystick = {
+      x: x / max,
+      y: y / max
+    };
+
+    stick.style.transform =
+      `translate(${x}px, ${y}px)`;
+  }
+
+  joyElement.addEventListener("pointerdown", e => {
+    e.preventDefault();
+
+    if (joyPointer !== null) return;
+
+    joyPointer = e.pointerId;
+    joyElement.setPointerCapture(e.pointerId);
+    updateJoystick(e);
   });
 
-  window.addEventListener("keyup", (e) => {
+  joyElement.addEventListener("pointermove", e => {
+    if (e.pointerId === joyPointer) {
+      updateJoystick(e);
+    }
+  });
+
+  function releaseJoystick(e) {
+    if (e.pointerId !== joyPointer) return;
+
+    joyPointer = null;
+    joystick = { x: 0, y: 0 };
+    stick.style.transform = "translate(0, 0)";
+  }
+
+  joyElement.addEventListener(
+    "pointerup", releaseJoystick
+  );
+
+  joyElement.addEventListener(
+    "pointercancel", releaseJoystick
+  );
+
+  $("#jumpBtn").addEventListener("pointerdown", e => {
+    e.preventDefault();
+    jumpRequested = true;
+  });
+
+  function bindAction(id, action) {
+    const button = $(id);
+    let timer = null;
+
+    button.addEventListener("pointerdown", e => {
+      e.preventDefault();
+
+      button.setPointerCapture(e.pointerId);
+      editBlock(action);
+
+      clearInterval(timer);
+      timer = setInterval(
+        () => editBlock(action),
+        280
+      );
+    });
+
+    const stop = () => {
+      clearInterval(timer);
+      timer = null;
+    };
+
+    button.addEventListener("pointerup", stop);
+    button.addEventListener("pointercancel", stop);
+    button.addEventListener("lostpointercapture", stop);
+  }
+
+  bindAction("#breakBtn", "break");
+  bindAction("#placeBtn", "place");
+
+  // --------------------------------
+  // INVENTÁRIO
+  // --------------------------------
+
+  function selectBlock(type) {
+    selectedBlock = type;
+
+    document.querySelectorAll(".slot").forEach(el => {
+      el.classList.toggle(
+        "selected",
+        Number(el.dataset.block) === type
+      );
+    });
+  }
+
+  document.querySelectorAll(".slot").forEach(el => {
+    el.addEventListener("click", () => {
+      selectBlock(Number(el.dataset.block));
+    });
+  });
+
+  window.addEventListener("keydown", e => {
+    if (document.activeElement?.tagName === "INPUT") {
+      return;
+    }
+
+    if ([
+      "Space", "ArrowUp", "ArrowDown",
+      "ArrowLeft", "ArrowRight"
+    ].includes(e.code)) e.preventDefault();
+
+    keys.add(e.code);
+
+    if (e.code === "Space") jumpRequested = true;
+
+    if (/^Digit[1-6]$/.test(e.code)) {
+      selectBlock(Number(e.code.slice(5)));
+    }
+  });
+
+  window.addEventListener("keyup", e => {
     keys.delete(e.code);
   });
 
   window.addEventListener("blur", () => {
     keys.clear();
-    mouseFire = false;
-    touchFire = false;
     joystick = { x: 0, y: 0 };
+    stick.style.transform = "translate(0,0)";
   });
 
-  // -----------------------------
-  // JOYSTICKS DO CELULAR
-  // -----------------------------
+  // --------------------------------
+  // RESOLUÇÃO ADAPTATIVA
+  // --------------------------------
 
-  function bindPad(element, dot, callback) {
-    let pointerId = null;
+  function resize() {
+    if (!renderer || !camera) return;
 
-    function move(e) {
-      const r = element.getBoundingClientRect();
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
 
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
+    renderer.setSize(innerWidth, innerHeight);
 
-      let dx = e.clientX - cx;
-      let dy = e.clientY - cy;
-
-      const max = r.width * 0.32;
-      const length = Math.hypot(dx, dy);
-
-      if (length > max) {
-        dx = dx / length * max;
-        dy = dy / length * max;
-      }
-
-      dot.style.transform =
-        `translate(${dx}px, ${dy}px)`;
-
-      callback(dx / max, dy / max, false);
-    }
-
-    element.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-
-      pointerId = e.pointerId;
-      element.setPointerCapture(pointerId);
-
-      move(e);
-    });
-
-    element.addEventListener("pointermove", (e) => {
-      if (e.pointerId === pointerId) {
-        move(e);
-      }
-    });
-
-    function release(e) {
-      if (e.pointerId !== pointerId) return;
-
-      pointerId = null;
-      dot.style.transform = "translate(0, 0)";
-
-      callback(0, 0, true);
-    }
-
-    element.addEventListener("pointerup", release);
-    element.addEventListener("pointercancel", release);
+    renderer.setPixelRatio(
+      Math.min(devicePixelRatio, quality)
+    );
   }
 
-  bindPad(
-    $("#joystick"),
-    $(".stick"),
-    (x, y) => {
-      joystick = { x, y };
+  function updatePerformance(dt) {
+    frameCounter++;
+    fpsTime += dt;
+
+    if (fpsTime < 1.5) return;
+
+    fps = Math.round(frameCounter / fpsTime);
+    $("#fps").textContent = `FPS: ${fps}`;
+
+    frameCounter = 0;
+    fpsTime = 0;
+
+    if (MOBILE && fps < 24 && quality > .7) {
+      quality = Math.max(.7, quality - .1);
+
+      renderer.setPixelRatio(
+        Math.min(devicePixelRatio, quality)
+      );
     }
-  );
 
-  bindPad(
-    $("#aim"),
-    $(".aim-dot"),
-    (x, y, released) => {
-      if (!released && Math.hypot(x, y) > 0.12) {
-        const len = Math.hypot(x, y);
+    if (MOBILE && fps > 48 && quality < 1.1) {
+      quality = Math.min(1.1, quality + .05);
 
-        mobileAim = {
-          x: x / len,
-          y: y / len
-        };
-      }
+      renderer.setPixelRatio(
+        Math.min(devicePixelRatio, quality)
+      );
     }
-  );
-
-  const fireButton = $("#fire");
-
-  fireButton.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-
-    touchFire = true;
-    fireButton.setPointerCapture(e.pointerId);
-  });
-
-  for (const name of [
-    "pointerup",
-    "pointercancel",
-    "lostpointercapture"
-  ]) {
-    fireButton.addEventListener(name, () => {
-      touchFire = false;
-    });
   }
 
-  // -----------------------------
-  // ENVIAR CONTROLES AO SERVIDOR
-  // -----------------------------
+  // --------------------------------
+  // LOOP PRINCIPAL
+  // --------------------------------
 
-  function sendInput() {
-    if (!connected || !state) return;
+  function loop(now) {
+    requestAnimationFrame(loop);
 
-    if (ws?.readyState !== WebSocket.OPEN) {
+    if (!connected || !renderer) {
+      lastTime = now;
       return;
     }
 
-    const right =
-      keys.has("KeyD") || keys.has("ArrowRight");
+    // No celular: limitar o render a cerca de 30 FPS,
+    // reduzindo consumo de GPU e aquecimento.
+    if (MOBILE && now - lastTime < 32) return;
 
-    const left =
-      keys.has("KeyA") || keys.has("ArrowLeft");
+    const dt = Math.min(
+      (now - (lastTime || now)) / 1000,
+      .05
+    );
 
-    const down =
-      keys.has("KeyS") || keys.has("ArrowDown");
+    lastTime = now;
 
-    const up =
-      keys.has("KeyW") || keys.has("ArrowUp");
+    updateMovement(dt);
 
-    let x =
-      Number(right) - Number(left) + joystick.x;
+    if (otherTarget && otherPlayer) {
+      const interpolation = Math.min(1, dt * 12);
 
-    let y =
-      Number(down) - Number(up) + joystick.y;
+      otherPlayer.position.lerp(
+        new THREE.Vector3(
+          otherTarget.x,
+          otherTarget.y,
+          otherTarget.z
+        ),
+        interpolation
+      );
 
-    const magnitude = Math.hypot(x, y);
-
-    if (magnitude > 1) {
-      x /= magnitude;
-      y /= magnitude;
+      otherPlayer.rotation.y +=
+        (otherTarget.yaw - otherPlayer.rotation.y) *
+        interpolation;
     }
 
-    let aimX = mobileAim.x;
-    let aimY = mobileAim.y;
+    if (selectionMesh) {
+      const target = targetBlock();
 
-    if (matchMedia("(pointer:fine)").matches) {
-      const player = state.players[slot];
+      selectionMesh.visible = !!target;
 
-      if (player) {
-        const dx = mouse.x - player.x;
-        const dy = mouse.y - player.y;
+      if (target) {
+        selectionMesh.position.set(
+          target.x + .5,
+          target.y + .5,
+          target.z + .5
+        );
+      }
+    }
 
-        const length = Math.hypot(dx, dy);
-
-        if (length > 0.01) {
-          aimX = dx / length;
-          aimY = dy / length;
+    if (now - lastNetwork > 65) {
+      send({
+        type: "move",
+        player: {
+          x: player.x,
+          y: player.y,
+          z: player.z,
+          yaw,
+          pitch
         }
-      }
+      });
+
+      lastNetwork = now;
     }
 
-    const firing =
-      touchFire ||
-      mouseFire ||
-      keys.has("Space");
+    $("#coordinates").textContent =
+      `X: ${Math.floor(player.x)} ` +
+      `Y: ${Math.floor(player.y)} ` +
+      `Z: ${Math.floor(player.z)}`;
 
-    ws.send(JSON.stringify({
-      type: "input",
-      x: clamp(x, -1, 1),
-      y: clamp(y, -1, 1),
-      aimX,
-      aimY,
-      fire: firing
-    }));
+    renderer.render(scene, camera);
 
-    // Pequeno efeito de disparo local.
-    // É visual: o tiro real continua sendo
-    // calculado pelo servidor multiplayer.
-    const now = performance.now();
-
-    if (
-      firing &&
-      state.phase === "playing" &&
-      now - lastShotEffect > 195
-    ) {
-      const player = state.players[slot];
-
-      if (player && player.hp > 0) {
-        const px = player.x + aimX * 31;
-        const py = player.y + aimY * 31;
-
-        emit(px, py, colorFor(slot), 3, 0.35);
-      }
-
-      lastShotEffect = now;
-    }
+    updatePerformance(dt);
   }
 
-  setInterval(sendInput, 1000 / 30);
+  // --------------------------------
+  // LINK DIRETO DA SALA
+  // --------------------------------
 
-  // -----------------------------
-  // ENTRAR AUTOMATICAMENTE POR LINK
-  // -----------------------------
-
-  const initialRoom =
+  const initialCode =
     new URLSearchParams(location.search)
       .get("sala");
 
   if (
-    initialRoom &&
-    /^[a-z0-9]{4}$/i.test(initialRoom)
+    initialCode &&
+    /^[A-Z0-9]{4}$/i.test(initialCode)
   ) {
     $("#roomCode").value =
-      initialRoom.toUpperCase();
+      initialCode.toUpperCase();
 
-    $("#join").click();
+    connect("join", initialCode.toUpperCase());
   }
 
-  // -----------------------------
-  // INICIALIZAÇÃO
-  // -----------------------------
-
-  requestAnimationFrame(draw);
-
-  console.log(
-    "%c NEON SURVIVORS V2 ",
-    "background:#64e8ff;color:#07111f;" +
-    "font-weight:bold;padding:6px 12px;"
-  );
-
-  console.log("Arena inicializada: 960x540");
-  console.log("Multiplayer WebSocket habilitado.");
+  console.log("BLOCK WORLD - Cliente carregado");
 })();
