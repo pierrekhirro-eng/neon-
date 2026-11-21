@@ -3,311 +3,114 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <meta name="theme-color" content="#080c19">
-  <meta name="description"
-        content="NEON SURVIVORS: sobreviva a ondas de monstros com um amigo no PC ou celular.">
-
-  <title>NEON SURVIVORS | Survive Together</title>
+  <meta name="viewport" content="width=device-width,
+    initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#111c26">
+  <title>BLOCK WORLD | Sobrevivência em Dupla</title>
   <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
-  <div class="background">
-    <div class="background-grid"></div>
-    <div class="glow glow-blue"></div>
-    <div class="glow glow-pink"></div>
-    <div class="glow glow-purple"></div>
+
+<section id="lobby">
+  <div class="menu">
+    <div class="logo">⛏ BLOCK<span>WORLD</span></div>
+    <div class="subtitle">MUNDO DE BLOCOS MULTIPLAYER</div>
+
+    <h1>Seu mundo.<br><em>Suas aventuras.</em></h1>
+
+    <p>
+      Explore um mundo 3D, quebre blocos,
+      construa com seu amigo e jogue pelo celular ou PC.
+    </p>
+
+    <button id="create" class="main-button">
+      🌍 CRIAR MUNDO
+    </button>
+
+    <div class="separator">OU ENTRE NO MUNDO DO AMIGO</div>
+
+    <div class="join-row">
+      <input id="roomCode" placeholder="CÓDIGO"
+             maxlength="4" autocomplete="off">
+      <button id="join">ENTRAR</button>
+    </div>
+
+    <div id="lobbyError"></div>
+
+    <div class="menu-info">
+      <span>📱 CONTROLES MOBILE</span>
+      <span>💻 PC + CELULAR</span>
+      <span>🔗 SALAS PRIVADAS</span>
+    </div>
+  </div>
+</section>
+
+<section id="game" class="hidden">
+
+  <div id="gameView"></div>
+
+  <div id="hud">
+    <div class="top-left">
+      <div class="game-name">⛏ BLOCK WORLD</div>
+      <div class="room-info">
+        SALA <b id="shownCode">----</b>
+        <button id="copy">COMPARTILHAR</button>
+      </div>
+      <div id="status">CARREGANDO MUNDO...</div>
+    </div>
+
+    <div class="top-right">
+      <div id="fps">FPS: --</div>
+      <div id="coordinates">X: 0 Y: 0 Z: 0</div>
+      <div class="health">❤️ ❤️ ❤️ ❤️ ❤️</div>
+    </div>
+
+    <div id="crosshair"></div>
+
+    <div id="hotbar">
+      <button class="slot selected" data-block="1">
+        <span class="block grass"></span><small>1</small>
+      </button>
+      <button class="slot" data-block="2">
+        <span class="block dirt"></span><small>2</small>
+      </button>
+      <button class="slot" data-block="3">
+        <span class="block stone"></span><small>3</small>
+      </button>
+      <button class="slot" data-block="4">
+        <span class="block wood"></span><small>4</small>
+      </button>
+      <button class="slot" data-block="5">
+        <span class="block leaves"></span><small>5</small>
+      </button>
+      <button class="slot" data-block="6">
+        <span class="block sand"></span><small>6</small>
+      </button>
+    </div>
+
+    <div id="mobileControls">
+      <div id="joystick">
+        <div id="stick"></div>
+      </div>
+
+      <div class="action-buttons">
+        <button id="jumpBtn">↑<small>PULAR</small></button>
+        <button id="breakBtn">⛏<small>QUEBRAR</small></button>
+        <button id="placeBtn">▣<small>COLOCAR</small></button>
+      </div>
+    </div>
+
+    <div id="desktopHint">
+      WASD MOVER · MOUSE OLHAR · CLIQUE ESQUERDO QUEBRAR
+      · DIREITO COLOCAR · ESPAÇO PULAR · 1-6 BLOCOS
+    </div>
+
+    <div id="message"></div>
   </div>
 
-  <main class="app">
+</section>
 
-    <!-- CABEÇALHO -->
-    <header class="header">
-      <div class="brand">
-        <div class="brand-symbol">✦</div>
-        <div class="brand-text">
-          <span>NEON</span>
-          <strong>SURVIVORS</strong>
-        </div>
-        <span class="version">V2</span>
-      </div>
-
-      <div class="online">
-        <span class="dot"></span>
-        <span>CO-OP MULTIPLAYER</span>
-      </div>
-    </header>
-
-    <!-- MENU INICIAL -->
-    <section id="lobby" class="lobby">
-
-      <div class="hero">
-        <div class="eyebrow">
-          <span class="eyebrow-dot"></span>
-          SURVIVAL PROTOCOL // ONLINE
-        </div>
-
-        <div class="hero-icon">☣</div>
-
-        <h1>
-          SOBREVIVA
-          <span>AO CAOS.</span>
-        </h1>
-
-        <p class="hero-description">
-          Dois sobreviventes. Uma arena.
-          Hordas infinitas de monstros.
-          Lute ao lado do seu amigo e descubra
-          até qual onda vocês conseguem chegar.
-        </p>
-
-        <div class="hero-tags">
-          <span>⚡ AÇÃO EM TEMPO REAL</span>
-          <span>☠ HORDAS INFINITAS</span>
-          <span>◆ 2 JOGADORES</span>
-        </div>
-      </div>
-
-      <!-- ENTRAR EM PARTIDA -->
-      <div class="lobby-panel">
-        <div class="panel-header">
-          <div>
-            <span class="panel-kicker">INICIAR MISSÃO</span>
-            <h2>Escolha como jogar</h2>
-          </div>
-          <div class="panel-icon">🎮</div>
-        </div>
-
-        <div class="lobby-actions">
-          <button id="create" class="primary">
-            <span class="button-icon">✦</span>
-            <span>CRIAR NOVA SALA</span>
-            <span class="button-arrow">↗</span>
-          </button>
-
-          <div class="join-divider">
-            <span>OU ENTRE COM UM CÓDIGO</span>
-          </div>
-
-          <div class="join">
-            <input
-              id="roomCode"
-              type="text"
-              maxlength="4"
-              placeholder="ABCD"
-              autocomplete="off"
-              autocapitalize="characters"
-              spellcheck="false"
-              aria-label="Código da sala"
-            >
-            <button id="join">ENTRAR →</button>
-          </div>
-        </div>
-
-        <div id="lobbyError"
-             class="error"
-             aria-live="polite"></div>
-      </div>
-
-      <!-- INFORMAÇÕES DA PARTIDA -->
-      <div class="feature-grid">
-
-        <div class="feature">
-          <div class="feature-icon blue-icon">⌖</div>
-          <div>
-            <h3>COMBATE</h3>
-            <p>Atire, desvie e proteja seu parceiro.</p>
-          </div>
-        </div>
-
-        <div class="feature">
-          <div class="feature-icon pink-icon">☠</div>
-          <div>
-            <h3>SOBREVIVÊNCIA</h3>
-            <p>Enfrente ondas cada vez mais difíceis.</p>
-          </div>
-        </div>
-
-        <div class="feature">
-          <div class="feature-icon green-icon">✚</div>
-          <div>
-            <h3>RECUPERAÇÃO</h3>
-            <p>Colete kits médicos e recupere sua vida.</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- CONTROLES -->
-      <div class="controls-guide">
-        <div class="guide-title">COMO JOGAR</div>
-
-        <div class="guide-items">
-          <div>
-            <span class="guide-icon">⌨</span>
-            <strong>COMPUTADOR</strong>
-            <small>WASD + MOUSE + CLIQUE</small>
-          </div>
-
-          <div>
-            <span class="guide-icon">▣</span>
-            <strong>CELULAR</strong>
-            <small>JOYSTICK + MIRA + TIRO</small>
-          </div>
-        </div>
-      </div>
-
-    </section>
-
-    <!-- PARTIDA -->
-    <section id="game" class="game hidden">
-
-      <!-- BARRA DA SALA -->
-      <div class="topbar">
-        <div class="room">
-          <span class="room-label">SALA PRIVADA</span>
-          <strong id="shownCode">----</strong>
-          <button id="copy">COPIAR LINK</button>
-        </div>
-
-        <div class="match-status">
-          <span class="status-light"></span>
-          <span id="status">AGUARDANDO...</span>
-        </div>
-      </div>
-
-      <!-- PLACAR -->
-      <div class="scoreboard">
-
-        <div class="fighter blue">
-          <div class="player-heading">
-            <span class="player-indicator">P1</span>
-            <div>
-              <div class="playername">SOBREVIVENTE AZUL</div>
-              <small>JOGADOR 1</small>
-            </div>
-          </div>
-
-          <div class="score-row">
-            <span class="score" id="score1">0</span>
-            <span class="score-label">ABATES</span>
-          </div>
-
-          <div class="health">
-            <span id="hp1"></span>
-          </div>
-        </div>
-
-        <div class="versus">
-          <div class="versus-icon">☣</div>
-          <strong>SURVIVAL</strong>
-          <small>COOPERATIVO</small>
-        </div>
-
-        <div class="fighter pink">
-          <div class="player-heading">
-            <span class="player-indicator">P2</span>
-            <div>
-              <div class="playername">SOBREVIVENTE ROSA</div>
-              <small>JOGADOR 2</small>
-            </div>
-          </div>
-
-          <div class="score-row">
-            <span class="score" id="score2">0</span>
-            <span class="score-label">ABATES</span>
-          </div>
-
-          <div class="health">
-            <span id="hp2"></span>
-          </div>
-        </div>
-
-      </div>
-
-      <!-- ARENA -->
-      <div class="arena-wrap">
-
-        <canvas
-          id="arena"
-          width="960"
-          height="540"
-          aria-label="Arena de sobrevivência multiplayer">
-        </canvas>
-
-        <!-- TELA DE ESPERA / DERROTA -->
-        <div id="overlay" class="overlay">
-          <div class="overlay-content">
-            <div class="overlay-symbol">☣</div>
-
-            <div id="overlayText">
-              AGUARDANDO PARCEIRO
-            </div>
-
-            <small id="overlaySub">
-              Compartilhe o código da sala.
-            </small>
-
-            <button id="restart"
-                    class="primary hidden">
-              <span>↻ RECOMEÇAR PARTIDA</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- CONTROLES DO CELULAR -->
-        <div id="mobileControls">
-
-          <div class="joystick-zone">
-            <div id="joystick" class="joystick">
-              <div class="stick"></div>
-              <span>MOVER</span>
-            </div>
-          </div>
-
-          <div class="right-controls">
-
-            <div id="aim" class="aim">
-              <div class="aim-dot"></div>
-              <span>MIRAR</span>
-            </div>
-
-            <button id="fire"
-                    class="fire"
-                    aria-label="Atirar">
-              ATIRAR
-              <strong>✦</strong>
-            </button>
-
-          </div>
-
-        </div>
-      </div>
-
-      <!-- RODAPÉ DA PARTIDA -->
-      <div class="under">
-        <span id="youAre">CARREGANDO...</span>
-        <span class="desktop-help">
-          WASD MOVER · MOUSE MIRAR · CLIQUE / ESPAÇO ATIRAR
-        </span>
-      </div>
-
-      <div class="mobile-hint">
-        📱 Para uma experiência melhor, jogue com
-        o celular na horizontal.
-      </div>
-
-    </section>
-
-    <footer class="footer">
-      NEON SURVIVORS
-      <span>✦</span>
-      SURVIVE TOGETHER
-    </footer>
-
-  </main>
-
-  <script src="app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.149.0/three.min.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
